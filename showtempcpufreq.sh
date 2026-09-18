@@ -115,16 +115,39 @@ p=pathlib.Path(sys.argv[1]); text=p.read_text()
 b=r'''
         // pve-hwstatus-cache frontend begin
         {
-            itemId: 'hwstatus',
+            itemId: 'hwtemperature',
             colspan: 2,
             printBar: false,
-            title: gettext('Hardware status'),
+            title: gettext('温度(°C)'),
             textField: 'hwstatus',
             renderer: (status) => {
                 if (!status || !status.cpu) return gettext('No cached hardware data');
-                const c = status.cpu, f = c.frequency || {};
+                const c = status.cpu;
                 const t = (c.temperatures_c || []).map((x) => x.toFixed(1) + '°C').join(' / ') || '-';
+                return 'CPU: ' + t;
+            },
+        },
+        {
+            itemId: 'hwfrequency',
+            colspan: 2,
+            printBar: false,
+            title: gettext('CPU频率(GHz)'),
+            textField: 'hwstatus',
+            renderer: (status) => {
+                if (!status || !status.cpu) return gettext('No cached hardware data');
+                const f = status.cpu.frequency || {};
                 const q = f.average_mhz ? (f.average_mhz / 1000).toFixed(2) + ' GHz (' + f.minimum_mhz + '-' + f.maximum_mhz + ' MHz)' : '-';
+                return q;
+            },
+        },
+        {
+            itemId: 'hwnvme',
+            colspan: 2,
+            printBar: false,
+            title: gettext('NVMe状态'),
+            textField: 'hwstatus',
+            renderer: (status) => {
+                if (!status) return gettext('No cached hardware data');
                 const n = (status.nvme || []).map((d) => {
                     if (d.error) return d.device + ': ' + d.error;
                     const a = d.temperature_c == null ? '-' : d.temperature_c + '°C';
@@ -132,7 +155,7 @@ b=r'''
                     const smart = d.smart_passed === true ? 'SMART OK' : (d.smart_passed === false ? 'SMART warning' : 'SMART unavailable');
                     return d.model + ': ' + a + ', health ' + h + ', ' + smart;
                 }).join(' | ') || 'No NVMe device';
-                return 'CPU temperature: ' + t + ' | CPU frequency: ' + q + ' | NVMe: ' + n;
+                return n;
             },
         },
         // pve-hwstatus-cache frontend end
@@ -155,6 +178,7 @@ a,b=map(pathlib.Path,sys.argv[1:])
 t=a.read_text(); a.write_text(re.sub(r'\n\s*# pve-hwstatus-cache backend begin.*?# pve-hwstatus-cache backend end\n','\n',t,flags=re.S))
 t=b.read_text(); t=re.sub(r'\n\s*// pve-hwstatus-cache frontend begin.*?// pve-hwstatus-cache frontend end\n','\n',t,flags=re.S)
 t=re.sub(r'\d+, // pve-hwstatus-cache original-height=(\d+)',r'\1,',t)
+t=t.replace('440, // pve-hwstatus-cache height','350,')
 b.write_text(t)
 PY
  systemctl disable --now pve-hwstatus-cache.timer 2>/dev/null || true
