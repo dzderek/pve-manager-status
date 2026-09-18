@@ -20,11 +20,12 @@ dependencies(){
   command -v sensors >/dev/null || packages="$packages lm-sensors"
   command -v smartctl >/dev/null || packages="$packages smartmontools"
   command -v python3 >/dev/null || packages="$packages python3"
-  [[ -z $packages ]] && return
-  info "Installing required packages:$packages"
-  apt-get update
-  # packages is assembled above from fixed package names only.
-  apt-get install -y $packages
+  if [[ -n $packages ]]; then
+    info "Installing required packages:$packages"
+    apt-get update
+    # packages is assembled above from fixed package names only.
+    apt-get install -y $packages
+  fi
 }
 backup(){
   install -d -m 700 "$BACKUP_DIR"
@@ -50,11 +51,16 @@ def temps():
  return out
 def freq():
  x=[]
+ governors=set()
  for p in glob.glob('/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq'):
   try:
    with open(p) as f: x.append(int(f.read())/1000)
   except (OSError,ValueError): pass
- return {'average_mhz':round(sum(x)/len(x)) if x else None,'minimum_mhz':round(min(x)) if x else None,'maximum_mhz':round(max(x)) if x else None}
+ for p in glob.glob('/sys/devices/system/cpu/cpufreq/policy*/scaling_governor'):
+  try:
+   with open(p) as f: governors.add(f.read().strip())
+  except OSError: pass
+ return {'average_mhz':round(sum(x)/len(x)) if x else None,'minimum_mhz':round(min(x)) if x else None,'maximum_mhz':round(max(x)) if x else None,'governor':' / '.join(sorted(governors)) or None}
 def nvme():
  out=[]
  for dev in sorted(glob.glob('/dev/nvme[0-9]*')):
@@ -62,7 +68,8 @@ def nvme():
   try: x=json.loads(run(['smartctl','-a','-j',dev],15))
   except (TypeError,json.JSONDecodeError): out.append({'device':dev,'error':'SMART data unavailable'}); continue
   h=x.get('nvme_smart_health_information_log',{}); used=h.get('percentage_used')
-  out.append({'device':dev,'model':x.get('model_name') or x.get('model_number') or 'unknown','temperature_c':x.get('temperature',{}).get('current',h.get('temperature')),'health_percent':100-used if isinstance(used,(int,float)) else None,'smart_passed':x.get('smart_status',{}).get('passed'),'power_on_hours':x.get('power_on_time',{}).get('hours')})
+  def tb(v): return round(v*512000/1000000000000,1) if isinstance(v,(int,float)) else None
+  out.append({'device':dev,'model':x.get('model_name') or x.get('model_number') or 'unknown','temperature_c':x.get('temperature',{}).get('current',h.get('temperature')),'health_percent':100-used if isinstance(used,(int,float)) else None,'smart_passed':x.get('smart_status',{}).get('passed'),'media_errors':h.get('media_errors'),'power_on_hours':x.get('power_on_time',{}).get('hours'),'power_cycle_count':x.get('power_cycle_count'),'read_tb':tb(h.get('data_units_read')),'written_tb':tb(h.get('data_units_written'))})
  return out
 data={'updated_at':int(time.time()),'cpu':{'temperatures_c':temps(),'frequency':freq()},'nvme':nvme()}
 fd,tmp=tempfile.mkstemp(prefix='.pve-hwstatus-',dir='/run')
@@ -137,7 +144,8 @@ b=r'''
                 if (!status || !status.cpu) return gettext('No cached hardware data');
                 const f = status.cpu.frequency || {};
                 const q = f.average_mhz ? (f.average_mhz / 1000).toFixed(2) + ' GHz (' + f.minimum_mhz + '-' + f.maximum_mhz + ' MHz)' : '-';
-                return q;
+                const g = '调速器: ' + (f.governor || 'unavailable');
+                return q + ' | ' + g;
             },
         },
         {
@@ -153,7 +161,12 @@ b=r'''
                     const a = d.temperature_c == null ? '-' : d.temperature_c + '°C';
                     const h = d.health_percent == null ? '-' : d.health_percent + '%';
                     const smart = d.smart_passed === true ? 'SMART OK' : (d.smart_passed === false ? 'SMART warning' : 'SMART unavailable');
-                    return d.model + ': ' + a + ', health ' + h + ', ' + smart;
+                    const oe = d.media_errors == null ? '-' : d.media_errors;
+                    const hours = d.power_on_hours == null ? '-' : d.power_on_hours + '时';
+                    const cycles = d.power_cycle_count == null ? '-' : d.power_cycle_count + '次';
+                    const read = d.read_tb == null ? '-' : d.read_tb + 'T';
+                    const write = d.written_tb == null ? '-' : d.written_tb + 'T';
+                    return d.model + ': ' + a + ' | 健康: ' + h + ' | 0E: ' + oe + ' | 通电: ' + hours + ', ' + cycles + ' | R/W: ' + read + '/' + write + ' | ' + smart;
                 }).join(' | ') || 'No NVMe device';
                 return n;
             },
