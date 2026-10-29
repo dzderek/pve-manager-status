@@ -1,6 +1,11 @@
 # shell脚本：
 codex重构
 - 一键给PVE添加CPU频率和各种温度显示，NVME硬盘，机械硬盘，固态硬盘信息
+<img width="584" height="293" alt="PixPin_2026-10-29_19-47-24" src="https://github.com/user-attachments/assets/10eaee67-7989-47b8-9d8d-1abe09e92b72" />
+
+- 
+# V20261029 支持pve9.2.24版本
+###
 
 # V20260918 支持pve9.2.20版本
 
